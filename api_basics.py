@@ -151,7 +151,7 @@ def query_llm(prompt: str, **kwargs) -> str:
       - retry with exponential backoff (transient errors only)
     """
     temperature = float(kwargs.get("temperature", 0.7))
-    max_tokens = int(kwargs.get("max_tokens", 100))
+    max_tokens = int(kwargs.get("max_tokens", 1024))
     model = kwargs.get("model", None)
     retries = int(kwargs.get("retries", 5))
     timeout = kwargs.get("timeout", None)
