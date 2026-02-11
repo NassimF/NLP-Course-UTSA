@@ -13,7 +13,6 @@ What this script includes (per Part 1 requirements):
 
 import os
 import sys
-import httpx
 import time
 import random
 import traceback
@@ -48,16 +47,10 @@ SYSTEM_PROMPT = (
 )
 
 # Create the OpenAI client configured for the course server.
-# Timeout is set at the CLIENT level (required for reliability)
+# Timeout is set at the client level (simple, global default).
 client = OpenAI(
     base_url=COURSE_LLM_BASE_URL,
     api_key=COURSE_LLM_API_KEY,
-    timeout=httpx.Timeout(
-        connect=10.0,   # time to establish connection
-        read=180.0,     # time waiting for model output
-        write=30.0,
-        pool=10.0,
-    ),
     max_retries=0,      # disable SDK retries; we handle retries ourselves
 )
 
@@ -167,7 +160,7 @@ def query_llm(prompt: str, **kwargs) -> str:
         raise ValueError("prompt must be a non-empty string")
 
     use_model = model or COURSE_LLM_MODEL
-    #use_timeout = COURSE_LLM_TIMEOUT if timeout is None else float(timeout)
+    use_timeout = COURSE_LLM_TIMEOUT if timeout is None else float(timeout)
 
     last_exc: Optional[Exception] = None
     last_info: Optional[Dict[str, Any]] = None
@@ -186,6 +179,7 @@ def query_llm(prompt: str, **kwargs) -> str:
             max_tokens=max_tokens,
             frequency_penalty=0,#no penalty for repeating tokens based on frequency
             presence_penalty=0,# no penalty for repeating topics
+            timeout=use_timeout,
             )
 
             # Extract the text content safely
