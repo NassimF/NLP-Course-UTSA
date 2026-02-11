@@ -18,6 +18,7 @@ import time
 import random
 import traceback
 import re
+import argparse
 from typing import Optional, Dict, Any
 
 from openai import OpenAI
@@ -150,15 +151,7 @@ def _strip_think(text: str) -> str:
 # -----------------------------
 # Part 1 Required Function
 # -----------------------------
-def query_llm(
-    prompt: str,
-    *,
-    temperature: float = 0.7,
-    max_tokens: int = 100,
-    model: Optional[str] = None,
-    retries: int = 5,
-    timeout: Optional[float] = None,
-) -> str:
+def query_llm(prompt: str, **kwargs) -> str:
     """
     Sends a prompt to the LLM and returns the response text.
 
@@ -170,6 +163,12 @@ def query_llm(
       - error handling (rate limits, auth failures, timeouts, connection)
       - retry with exponential backoff (transient errors only)
     """
+    temperature = float(kwargs.get("temperature", 0.7))
+    max_tokens = int(kwargs.get("max_tokens", 100))
+    model = kwargs.get("model", None)
+    retries = int(kwargs.get("retries", 5))
+    timeout = kwargs.get("timeout", None)
+
     if not isinstance(prompt, str) or not prompt.strip():
         raise ValueError("prompt must be a non-empty string")
 
@@ -244,9 +243,17 @@ def query_llm(
 # -----------------------------
 def main() -> None:
     # Quick sanity check to reduce confusion when running the script
+    parser = argparse.ArgumentParser(description="API Basics demo client.")
+    parser.add_argument("--temperature", type=float, default=0.7, help="Sampling temperature.")
+    parser.add_argument("--max-tokens", type=int, default=200, help="Max tokens for responses.")
+    parser.add_argument("--model", type=str, default=None, help="Override model name.")
+    parser.add_argument("--retries", type=int, default=5, help="Retry attempts for transient failures.")
+    parser.add_argument("--timeout", type=float, default=None, help="Per-request timeout override.")
+    args = parser.parse_args()
+
     print("== Part 1 Demo: API Basics ==")
     print(f"Base URL: {COURSE_LLM_BASE_URL}")
-    print(f"Model:    {COURSE_LLM_MODEL}")
+    print(f"Model:    {args.model or COURSE_LLM_MODEL}")
     print("Note: Set COURSE_LLM_BASE_URL / COURSE_LLM_API_KEY / COURSE_LLM_MODEL as env vars.\n")
 
     prompts = [
@@ -256,20 +263,10 @@ def main() -> None:
     ]
 
     # Keep parameters explicit (makes grading clearer)
-    temperature_default = 0.7
+    temperature_default = args.temperature
     temperature_formatting = 0.0
-    max_tokens = 200
+    max_tokens = args.max_tokens
     inter_prompt_sleep_s = 1.5
-
-    # Preflight: tiny request to check server + model availability before the demo loop.
-    
-    try:
-        print("Preflight check in process...")
-        _ = query_llm("hi", temperature=0, max_tokens=16, retries=1)
-    except Exception as e:
-        print("[ERROR] Preflight check failed. The server may be overloaded or the model unavailable.")
-        print(str(e))
-        return
 
     for i, p in enumerate(prompts, start=1):
         print(f"--- Prompt #{i} ---")
@@ -277,7 +274,14 @@ def main() -> None:
         print("\n--- Response ---")
         temp = temperature_default if i == 1 else temperature_formatting
         try:
-            out = query_llm(p, temperature=temp, max_tokens=max_tokens)
+            out = query_llm(
+                p,
+                temperature=temp,
+                max_tokens=max_tokens,
+                model=args.model,
+                retries=args.retries,
+                timeout=args.timeout,
+            )
             print(out if out else "[Empty response]")
         except Exception as e:
             print("[ERROR] query_llm failed.")
