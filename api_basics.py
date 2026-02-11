@@ -27,12 +27,7 @@ from openai import OpenAI
 # -----------------------------
 # Configuration (Course Server)
 # -----------------------------
-# Set these as environment variables (recommended):
-#   COURSE_LLM_BASE_URL="http://your-server-url:port/v1"
-#   COURSE_LLM_API_KEY="YOUR_STUDENT_API_KEY"
-#   COURSE_LLM_MODEL="model-name-string"
-#
-# You can also hardcode placeholders for local testing, but do NOT submit secrets.
+
 
 COURSE_LLM_BASE_URL = os.getenv("COURSE_LLM_BASE_URL", "http://10.246.100.230/v1")
 COURSE_LLM_API_KEY  = os.getenv("COURSE_LLM_API_KEY")
@@ -53,7 +48,6 @@ SYSTEM_PROMPT = (
 )
 
 # Create the OpenAI client configured for the course server.
-# Create the OpenAI client configured for the course server
 # Timeout is set at the CLIENT level (required for reliability)
 client = OpenAI(
     base_url=COURSE_LLM_BASE_URL,
@@ -242,7 +236,7 @@ def query_llm(prompt: str, **kwargs) -> str:
 # Demo (Part 1 requirement)
 # -----------------------------
 def main() -> None:
-    # Quick sanity check to reduce confusion when running the script
+    
     parser = argparse.ArgumentParser(description="API Basics demo client.")
     parser.add_argument("--temperature", type=float, default=0.7, help="Sampling temperature.")
     parser.add_argument("--max-tokens", type=int, default=200, help="Max tokens for responses.")
@@ -262,7 +256,7 @@ def main() -> None:
         "Return a JSON object with keys: task, difficulty, tip. Keep values short.",
     ]
 
-    # Keep parameters explicit (makes grading clearer)
+    # parameters
     temperature_default = args.temperature
     temperature_formatting = 0.0
     max_tokens = args.max_tokens
@@ -286,7 +280,7 @@ def main() -> None:
         except Exception as e:
             print("[ERROR] query_llm failed.")
             print(str(e))
-            # Optional: include traceback for debugging (comment out if you prefer)
+            #traceback for debugging 
             traceback.print_exc()
         print("\n")
         time.sleep(inter_prompt_sleep_s)
