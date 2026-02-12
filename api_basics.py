@@ -122,7 +122,7 @@ def _exponential_backoff_seconds(attempt: int, base: float = 1.0, cap: float = 2
     Capped to avoid unbounded sleep.
     """
     exp = min(cap, base * (2 ** attempt))
-    jitter = random.uniform(0, 0.25 * exp)
+    jitter = random.uniform(0, 0.25 * exp)# adds randomness so retries spread out in time and improves service recovery
     return exp + jitter
 
 
