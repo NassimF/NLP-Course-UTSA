@@ -155,6 +155,7 @@ def query_llm(prompt: str, **kwargs) -> str:
     model = kwargs.get("model", None)
     retries = int(kwargs.get("retries", 5))
     timeout = kwargs.get("timeout", None)
+    system_prompt = str(kwargs.get("system_prompt", SYSTEM_PROMPT))
 
     if not isinstance(prompt, str) or not prompt.strip():
         raise ValueError("prompt must be a non-empty string")
@@ -171,7 +172,7 @@ def query_llm(prompt: str, **kwargs) -> str:
             response = client.chat.completions.create(
             model=use_model,
             messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},#skip the chain of thought printing
+                {"role": "system", "content": system_prompt},#skip the chain of thought printing
                 {"role": "user", "content": prompt},
                 ],
             temperature=temperature,#randomness

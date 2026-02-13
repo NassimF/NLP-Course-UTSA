@@ -57,3 +57,18 @@ export NO_PROXY="10.246.100.230,localhost,127.0.0.1"
   - `Negative cues: <short list>`
   - `Final Answer: <positive|negative>`
 - This helps by making responses easier to parse, more consistent across runs, and less ambiguous during scoring.
+
+### Recent Implementation Update (Execution Skeleton)
+
+- `api_basics.py -> query_llm(..., system_prompt=...)`: added optional `system_prompt` override so experiments can change system instructions per technique (default behavior remains unchanged).
+- `experiments.py -> TECHNIQUE_* constants + PROMPT_TECHNIQUES`: defines the four required prompting strategies in one place.
+- `experiments.py -> ExperimentRecord`: stores one result row per model call (task, technique, prompt, raw output, parsed answer, latency, error, gold data).
+- `experiments.py -> _validate_technique(technique)`: guards against unsupported strategy names.
+- `experiments.py -> build_qa_prompt(...)`: builds QA prompts for zero-shot, few-shot, chain-of-thought, and structured-output custom strategy.
+- `experiments.py -> build_sentiment_prompt(...)`: builds sentiment prompts for the same four strategies.
+- `experiments.py -> extract_final_answer(raw_text)`: extracts the `Final Answer:` line for consistent downstream parsing.
+- `experiments.py -> _system_prompt_for_technique(technique)`: applies a CoT-specific system prompt override and leaves other techniques on defaults.
+- `experiments.py -> call_llm(...)`: central LLM call path for experiments using lazy import of Part 1 `query_llm`.
+- `experiments.py -> run_qa_experiments(...)`: executes all techniques across QA samples, captures latency/errors, and records outputs.
+- `experiments.py -> run_sentiment_experiments(...)`: executes all techniques across sentiment samples with the same controlled structure.
+- `experiments.py -> main()`: now runs dataset loading + execution skeleton and prints total records/error count.
