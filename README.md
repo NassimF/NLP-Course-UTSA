@@ -45,3 +45,15 @@ export NO_PROXY="10.246.100.230,localhost,127.0.0.1"
   - raw per-example outputs to JSONL
   - aggregated metrics to CSV
 - Update `query_llm()` with an optional `system_prompt` override so CoT experiments can run without changing Part 1 defaults.
+
+### Custom Strategy: Structured Output Format
+
+- The custom prompting strategy uses a fixed output schema instead of free-form text.
+- QA prompt format asks for:
+  - `Evidence: <quote from context>`
+  - `Final Answer: <short answer>`
+- Sentiment prompt format asks for:
+  - `Positive cues: <short list>`
+  - `Negative cues: <short list>`
+  - `Final Answer: <positive|negative>`
+- This helps by making responses easier to parse, more consistent across runs, and less ambiguous during scoring.
