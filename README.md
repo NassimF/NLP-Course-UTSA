@@ -72,3 +72,16 @@ export NO_PROXY="10.246.100.230,localhost,127.0.0.1"
 - `experiments.py -> run_qa_experiments(...)`: executes all techniques across QA samples, captures latency/errors, and records outputs.
 - `experiments.py -> run_sentiment_experiments(...)`: executes all techniques across sentiment samples with the same controlled structure.
 - `experiments.py -> main()`: now runs dataset loading + execution skeleton and prints total records/error count.
+
+### Recent Implementation Update (Metrics + Export)
+
+- `experiments.py -> normalize_qa_text(text)`: normalizes QA text (lowercase, punctuation/article removal, whitespace cleanup) before EM/F1 scoring.
+- `experiments.py -> normalize_sentiment_label(text)`: maps model sentiment output to `positive`, `negative`, or `unknown`.
+- `experiments.py -> qa_exact_match(prediction, gold_answers)`: computes exact match against SQuAD references after normalization.
+- `experiments.py -> qa_token_f1(prediction, gold_answers)`: computes token-level F1 and uses best score across multiple reference answers.
+- `experiments.py -> sentiment_accuracy(records)`: computes sentiment classification accuracy from parsed outputs.
+- `experiments.py -> sentiment_macro_f1(records)`: computes macro-F1 over positive/negative classes.
+- `experiments.py -> summarize_metrics(records)`: aggregates metrics by `(task, technique)` including latency and error counts.
+- `experiments.py -> write_experiment_runs_jsonl(path, records)`: exports per-example raw/parsed outputs and normalization/scoring fields.
+- `experiments.py -> write_summary_csv(path, summary_rows)`: exports task/technique aggregate metrics to CSV.
+- `experiments.py -> main()`: now writes `outputs/experiment_runs.jsonl` and `outputs/summary_metrics.csv` after running experiments.

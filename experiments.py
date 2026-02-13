@@ -9,11 +9,15 @@ Initial scaffold:
 """
 
 import argparse
+import csv
+import json
 import os
 import random
 import re
+import string
 import time
-from dataclasses import dataclass
+from collections import Counter, defaultdict
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -71,6 +75,110 @@ class ExperimentRecord:
     error: str
     gold_answers: Optional[List[str]] = None
     gold_label: Optional[int] = None
+
+
+def _remove_articles(text: str) -> str:
+    return re.sub(r"\b(a|an|the)\b", " ", text)
+
+
+def normalize_qa_text(text: str) -> str:
+    if not text:
+        return ""
+    lowered = text.lower()
+    no_punc = "".join(ch for ch in lowered if ch not in string.punctuation)
+    no_articles = _remove_articles(no_punc)
+    return " ".join(no_articles.split())
+
+
+def normalize_sentiment_label(text: str) -> str:
+    if not text:
+        return "unknown"
+    value = text.strip().lower()
+    if "positive" in value or value in {"pos", "1"}:
+        return "positive"
+    if "negative" in value or value in {"neg", "0"}:
+        return "negative"
+    return "unknown"
+
+
+def _gold_sentiment_label(label: Optional[int]) -> str:
+    if label == 1:
+        return "positive"
+    if label == 0:
+        return "negative"
+    return "unknown"
+
+
+def qa_exact_match(prediction: str, gold_answers: List[str]) -> float:
+    if not gold_answers:
+        return 0.0
+    pred_norm = normalize_qa_text(prediction)
+    for gold in gold_answers:
+        if pred_norm == normalize_qa_text(gold):
+            return 1.0
+    return 0.0
+
+
+def _token_f1(prediction: str, gold: str) -> float:
+    pred_tokens = normalize_qa_text(prediction).split()
+    gold_tokens = normalize_qa_text(gold).split()
+    if not pred_tokens and not gold_tokens:
+        return 1.0
+    if not pred_tokens or not gold_tokens:
+        return 0.0
+
+    overlap = Counter(pred_tokens) & Counter(gold_tokens)
+    common = sum(overlap.values())
+    if common == 0:
+        return 0.0
+    precision = common / len(pred_tokens)
+    recall = common / len(gold_tokens)
+    return 2 * precision * recall / (precision + recall)
+
+
+def qa_token_f1(prediction: str, gold_answers: List[str]) -> float:
+    if not gold_answers:
+        return 0.0
+    return max(_token_f1(prediction, gold) for gold in gold_answers)
+
+
+def sentiment_accuracy(records: List[ExperimentRecord]) -> float:
+    valid = [r for r in records if r.task == SENTIMENT_TASK and r.gold_label is not None]
+    if not valid:
+        return 0.0
+    correct = 0
+    for record in valid:
+        pred = normalize_sentiment_label(record.parsed_final_answer)
+        gold = _gold_sentiment_label(record.gold_label)
+        if pred == gold:
+            correct += 1
+    return correct / len(valid)
+
+
+def sentiment_macro_f1(records: List[ExperimentRecord]) -> float:
+    valid = [r for r in records if r.task == SENTIMENT_TASK and r.gold_label is not None]
+    if not valid:
+        return 0.0
+    labels = ("positive", "negative")
+    f1_scores: List[float] = []
+    for label in labels:
+        tp = fp = fn = 0
+        for record in valid:
+            pred = normalize_sentiment_label(record.parsed_final_answer)
+            gold = _gold_sentiment_label(record.gold_label)
+            if pred == label and gold == label:
+                tp += 1
+            elif pred == label and gold != label:
+                fp += 1
+            elif pred != label and gold == label:
+                fn += 1
+        precision = tp / (tp + fp) if (tp + fp) else 0.0
+        recall = tp / (tp + fn) if (tp + fn) else 0.0
+        if precision + recall == 0:
+            f1_scores.append(0.0)
+        else:
+            f1_scores.append(2 * precision * recall / (precision + recall))
+    return sum(f1_scores) / len(f1_scores)
 
 
 def _validate_technique(technique: str) -> None:
@@ -358,6 +466,73 @@ def run_sentiment_experiments(
     return records
 
 
+def summarize_metrics(records: List[ExperimentRecord]) -> List[Dict[str, Any]]:
+    grouped: Dict[Tuple[str, str], List[ExperimentRecord]] = defaultdict(list)
+    for record in records:
+        grouped[(record.task, record.technique)].append(record)
+
+    rows: List[Dict[str, Any]] = []
+    for (task, technique), group in sorted(grouped.items()):
+        base_row: Dict[str, Any] = {
+            "task": task,
+            "technique": technique,
+            "num_samples": len(group),
+            "error_count": sum(1 for r in group if r.error),
+            "avg_latency_ms": round(
+                sum(r.latency_ms for r in group) / len(group) if group else 0.0, 3
+            ),
+        }
+
+        if task == QA_TASK:
+            em_scores = [qa_exact_match(r.parsed_final_answer, r.gold_answers or []) for r in group]
+            f1_scores = [qa_token_f1(r.parsed_final_answer, r.gold_answers or []) for r in group]
+            base_row["exact_match"] = round(sum(em_scores) / len(em_scores), 4) if em_scores else 0.0
+            base_row["token_f1"] = round(sum(f1_scores) / len(f1_scores), 4) if f1_scores else 0.0
+            base_row["accuracy"] = ""
+            base_row["macro_f1"] = ""
+        else:
+            base_row["exact_match"] = ""
+            base_row["token_f1"] = ""
+            base_row["accuracy"] = round(sentiment_accuracy(group), 4)
+            base_row["macro_f1"] = round(sentiment_macro_f1(group), 4)
+
+        rows.append(base_row)
+    return rows
+
+
+def write_experiment_runs_jsonl(path: Path, records: List[ExperimentRecord]) -> None:
+    with path.open("w", encoding="utf-8") as f:
+        for record in records:
+            row = asdict(record)
+            if record.task == QA_TASK:
+                row["qa_exact_match"] = qa_exact_match(record.parsed_final_answer, record.gold_answers or [])
+                row["qa_token_f1"] = qa_token_f1(record.parsed_final_answer, record.gold_answers or [])
+                row["normalized_prediction"] = normalize_qa_text(record.parsed_final_answer)
+            else:
+                row["normalized_prediction"] = normalize_sentiment_label(record.parsed_final_answer)
+                row["gold_label_name"] = _gold_sentiment_label(record.gold_label)
+            f.write(json.dumps(row, ensure_ascii=True) + "\n")
+
+
+def write_summary_csv(path: Path, summary_rows: List[Dict[str, Any]]) -> None:
+    fieldnames = [
+        "task",
+        "technique",
+        "num_samples",
+        "error_count",
+        "avg_latency_ms",
+        "exact_match",
+        "token_f1",
+        "accuracy",
+        "macro_f1",
+    ]
+    with path.open("w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer.writeheader()
+        for row in summary_rows:
+            writer.writerow(row)
+
+
 def main() -> None:
     config = parse_args()
     config.output_dir.mkdir(parents=True, exist_ok=True)
@@ -381,7 +556,14 @@ def main() -> None:
     error_count = sum(1 for r in all_records if r.error)
     print(f"Collected records: {len(all_records)}")
     print(f"Records with errors: {error_count}")
-    print("Next step: add JSONL/CSV export and scoring metrics.")
+
+    summary_rows = summarize_metrics(all_records)
+    runs_path = config.output_dir / "experiment_runs.jsonl"
+    summary_path = config.output_dir / "summary_metrics.csv"
+    write_experiment_runs_jsonl(runs_path, all_records)
+    write_summary_csv(summary_path, summary_rows)
+    print(f"Wrote runs JSONL: {runs_path}")
+    print(f"Wrote summary CSV: {summary_path}")
 
 
 if __name__ == "__main__":
