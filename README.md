@@ -113,3 +113,21 @@ export NO_PROXY="10.246.100.230,localhost,127.0.0.1"
   - `Records with errors: 0`
   - `parse_fail_count: 0` across all task/technique rows
   - one format-violation case tracked under sentiment chain-of-thought
+
+### Recent Implementation Update (Final HF Run + Sentiment Prompt Tweak)
+
+- `experiments.py -> build_sentiment_prompt(...)` was tightened to reduce ambiguous outputs:
+  - explicitly requires exactly one of:
+    - `Final Answer: positive`
+    - `Final Answer: negative`
+  - explicitly says not to output angle brackets or both labels.
+- Final assignment-size run completed with `--samples-per-task 20`:
+  - `Loaded QA examples: 20`
+  - `Loaded sentiment examples: 20`
+  - `Collected records: 160`
+  - `Records with errors: 0`
+- Final metrics snapshot from `outputs/final_hf_20/summary_metrics.csv`:
+  - QA best EM/F1: `zero_shot` (`EM=0.65`, `token_f1=0.7643`)
+  - Sentiment best accuracy/macro-F1: tie `zero_shot` and `custom_variation` (`accuracy=0.90`, `macro_f1=0.899`)
+  - `parse_fail_count=0` across all rows after the prompt tweak
+  - remaining `format_violation_count=7`, all in sentiment `chain_of_thought`

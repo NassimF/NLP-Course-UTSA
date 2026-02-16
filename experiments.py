@@ -245,8 +245,11 @@ def build_sentiment_prompt(example: SentimentExample, technique: str) -> str:
     shared = (
         "Task: Classify the review sentiment.\n"
         "Allowed labels: positive, negative\n"
-        "Always end with one line formatted exactly as:\n"
-        "Final Answer: <positive|negative>\n"
+        "Always end with exactly one final line using one valid label:\n"
+        "Final Answer: positive\n"
+        "or\n"
+        "Final Answer: negative\n"
+        "Do not use angle brackets. Do not output both labels.\n"
     )
 
     if technique == TECHNIQUE_ZERO_SHOT:
@@ -264,14 +267,15 @@ def build_sentiment_prompt(example: SentimentExample, technique: str) -> str:
     elif technique == TECHNIQUE_COT:
         strategy = (
             "Reason briefly about sentiment cues before deciding.\n"
-            "Then provide exactly one final line in the required format."
+            "Then provide exactly one final line in the required format.\n"
+            "Pick exactly one label: positive or negative."
         )
     else:
         strategy = (
             "Use a structured approach:\n"
             "Positive cues: <short list>\n"
             "Negative cues: <short list>\n"
-            "Final Answer: <positive|negative>\n"
+            "Final Answer: positive OR Final Answer: negative\n"
         )
 
     return (
