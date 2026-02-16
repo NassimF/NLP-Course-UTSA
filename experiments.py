@@ -79,6 +79,7 @@ class ExperimentRecord:
     raw_response: str
     parsed_final_answer: str
     parse_failed: bool
+    format_violation: bool
     latency_ms: float
     error: str
     gold_answers: Optional[List[str]] = None
@@ -280,15 +281,75 @@ def build_sentiment_prompt(example: SentimentExample, technique: str) -> str:
     )
 
 
-def extract_final_answer(raw_text: str) -> Tuple[str, bool]:
-    # Parse the canonical answer line used by all prompting strategies.
-    # If the expected line is missing, fall back to full trimmed output.
+def _strip_wrapping_pairs(text: str) -> str:
+    value = text.strip()
+    wrappers = (("<", ">"), ("[", "]"), ("(", ")"), ('"', '"'), ("'", "'"), ("`", "`"))
+    changed = True
+    while changed and len(value) >= 2:
+        changed = False
+        for left, right in wrappers:
+            if value.startswith(left) and value.endswith(right):
+                value = value[len(left) : -len(right)].strip()
+                changed = True
+    return value
+
+
+def _extract_sentiment_label(text: str) -> Tuple[str, bool]:
+    cleaned = _strip_wrapping_pairs(text)
+    labels = re.findall(r"(?i)\b(positive|negative)\b", cleaned)
+    if not labels:
+        return "", False
+    unique = {label.lower() for label in labels}
+    if len(unique) == 1:
+        return labels[-1].lower(), True
+    return "", False
+
+
+def _final_answer_candidate(raw_text: str, strict: bool) -> Optional[str]:
+    if strict:
+        matches = re.findall(r"(?im)^Final Answer:\s*(.+?)\s*$", raw_text.strip())
+        return matches[-1].strip() if matches else None
+
+    matches = re.findall(r"(?is)Final Answer:\s*(.+)", raw_text)
+    if not matches:
+        return None
+    tail = matches[-1].strip()
+    for line in tail.splitlines():
+        if line.strip():
+            return line.strip()
+    return tail
+
+
+def extract_final_answer(raw_text: str, task: Optional[str] = None) -> Tuple[str, bool, bool]:
+    # Parse "Final Answer:" in two passes:
+    # 1) strict line-start match, 2) relaxed fallback anywhere in the response.
+    # format_violation flags cases where the fallback path was required.
     if not raw_text:
-        return "", True
-    matches = re.findall(r"(?im)^Final Answer:\s*(.+?)\s*$", raw_text.strip())
-    if matches:
-        return matches[-1].strip(), False
-    return raw_text.strip(), True
+        return "", True, False
+
+    strict_candidate = _final_answer_candidate(raw_text, strict=True)
+    if strict_candidate is not None:
+        if task == SENTIMENT_TASK:
+            label, ok = _extract_sentiment_label(strict_candidate)
+            if ok:
+                return label, False, False
+            return _strip_wrapping_pairs(strict_candidate), True, False
+        return _strip_wrapping_pairs(strict_candidate), False, False
+
+    relaxed_candidate = _final_answer_candidate(raw_text, strict=False)
+    if relaxed_candidate is not None:
+        if task == SENTIMENT_TASK:
+            label, ok = _extract_sentiment_label(relaxed_candidate)
+            if ok:
+                return label, False, True
+            return _strip_wrapping_pairs(relaxed_candidate), True, True
+        return _strip_wrapping_pairs(relaxed_candidate), False, True
+
+    if task == SENTIMENT_TASK:
+        label, ok = _extract_sentiment_label(raw_text)
+        if ok:
+            return label, False, True
+    return raw_text.strip(), True, True
 
 
 def _system_prompt_for_technique(technique: str) -> Optional[str]:
@@ -331,7 +392,7 @@ def parse_args() -> ExperimentConfig:
     )
     parser.add_argument("--model", type=str, default=DEFAULT_MODEL)
     parser.add_argument("--temperature", type=float, default=0.2)
-    parser.add_argument("--max-tokens", type=int, default=256)
+    parser.add_argument("--max-tokens", type=int, default=1024)
     parser.add_argument("--samples-per-task", type=int, default=20)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--output-dir", type=Path, default=Path("outputs"))
@@ -474,7 +535,9 @@ def run_qa_experiments(
                 # Keep running if one call fails; capture failure for later analysis.
                 error = str(exc)
             latency_ms = (time.perf_counter() - start) * 1000.0
-            parsed, parse_failed = extract_final_answer(raw_response)
+            parsed, parse_failed, format_violation = extract_final_answer(
+                raw_response, task=QA_TASK
+            )
             system_prompt = _record_system_prompt(technique)
             # Store both raw text and parsed final answer for reproducibility/evaluation.
             records.append(
@@ -495,6 +558,7 @@ def run_qa_experiments(
                     raw_response=raw_response,
                     parsed_final_answer=parsed,
                     parse_failed=parse_failed,
+                    format_violation=format_violation,
                     latency_ms=latency_ms,
                     error=error,
                     gold_answers=example.gold_answers,
@@ -525,7 +589,9 @@ def run_sentiment_experiments(
                 # Record the error and continue to avoid aborting the whole run.
                 error = str(exc)
             latency_ms = (time.perf_counter() - start) * 1000.0
-            parsed, parse_failed = extract_final_answer(raw_response)
+            parsed, parse_failed, format_violation = extract_final_answer(
+                raw_response, task=SENTIMENT_TASK
+            )
             system_prompt = _record_system_prompt(technique)
             # Save parsed label and gold label for later scoring (accuracy/F1).
             records.append(
@@ -543,6 +609,7 @@ def run_sentiment_experiments(
                     raw_response=raw_response,
                     parsed_final_answer=parsed,
                     parse_failed=parse_failed,
+                    format_violation=format_violation,
                     latency_ms=latency_ms,
                     error=error,
                     gold_answers=None,
@@ -565,6 +632,7 @@ def summarize_metrics(records: List[ExperimentRecord]) -> List[Dict[str, Any]]:
             "num_samples": len(group),
             "error_count": sum(1 for r in group if r.error),
             "parse_fail_count": sum(1 for r in group if r.parse_failed),
+            "format_violation_count": sum(1 for r in group if r.format_violation),
             "avg_latency_ms": round(
                 sum(r.latency_ms for r in group) / len(group) if group else 0.0, 3
             ),
@@ -608,6 +676,7 @@ def write_summary_csv(path: Path, summary_rows: List[Dict[str, Any]]) -> None:
         "num_samples",
         "error_count",
         "parse_fail_count",
+        "format_violation_count",
         "avg_latency_ms",
         "exact_match",
         "token_f1",

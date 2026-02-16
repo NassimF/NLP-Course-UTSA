@@ -66,7 +66,7 @@ export NO_PROXY="10.246.100.230,localhost,127.0.0.1"
 - `experiments.py -> _validate_technique(technique)`: guards against unsupported strategy names.
 - `experiments.py -> build_qa_prompt(...)`: builds QA prompts for zero-shot, few-shot, chain-of-thought, and structured-output custom strategy.
 - `experiments.py -> build_sentiment_prompt(...)`: builds sentiment prompts for the same four strategies.
-- `experiments.py -> extract_final_answer(raw_text)`: extracts the `Final Answer:` line for consistent downstream parsing.
+- `experiments.py -> extract_final_answer(raw_text, task=...)`: extracts the `Final Answer:` value with task-aware parsing for consistent downstream scoring.
 - `experiments.py -> _system_prompt_for_technique(technique)`: applies a CoT-specific system prompt override and leaves other techniques on defaults.
 - `experiments.py -> call_llm(...)`: central LLM call path for experiments using lazy import of Part 1 `query_llm`.
 - `experiments.py -> run_qa_experiments(...)`: executes all techniques across QA samples, captures latency/errors, and records outputs.
@@ -97,3 +97,19 @@ export NO_PROXY="10.246.100.230,localhost,127.0.0.1"
   - `outputs/smoke_validation_local/experiment_runs.jsonl`
   - `outputs/smoke_validation_local/summary_metrics.csv`
   - `Records with errors: 0`
+
+### Recent Implementation Update (Robust Final-Answer Parsing)
+
+- `experiments.py -> extract_final_answer(...)` now uses a two-pass parser:
+  - strict parse: expects `Final Answer:` at line start (the required format)
+  - relaxed parse: if strict fails, recovers `Final Answer:` even when it appears mid-line
+- Added helper functions for cleaner extraction:
+  - `_final_answer_candidate(...)` to get strict vs relaxed candidates
+  - `_strip_wrapping_pairs(...)` to remove wrappers like `<negative>`
+  - `_extract_sentiment_label(...)` to safely recover `positive`/`negative` labels
+- Added `format_violation` to each run record when fallback parsing is needed.
+- Added `format_violation_count` to the summary CSV so prompt-format compliance is tracked separately from true parse failures.
+- After rerunning on Hugging Face data (`samples-per-task=10`):
+  - `Records with errors: 0`
+  - `parse_fail_count: 0` across all task/technique rows
+  - one format-violation case tracked under sentiment chain-of-thought
