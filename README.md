@@ -131,3 +131,11 @@ export NO_PROXY="10.246.100.230,localhost,127.0.0.1"
   - Sentiment best accuracy/macro-F1: tie `zero_shot` and `custom_variation` (`accuracy=0.90`, `macro_f1=0.899`)
   - `parse_fail_count=0` across all rows after the prompt tweak
   - remaining `format_violation_count=7`, all in sentiment `chain_of_thought`
+
+### Recent Implementation Update (Part 3 Planning)
+
+- Added a dedicated Part 3 report-prep TODO section to `PLAN.md`.
+- Defined next concrete steps:
+  - build report tables from `outputs/final_hf_20/summary_metrics.csv`
+  - select 2-3 failure cases from `outputs/final_hf_20/experiment_runs.jsonl`
+  - draft the 800-1200 word analysis structure
