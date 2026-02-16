@@ -85,3 +85,15 @@ export NO_PROXY="10.246.100.230,localhost,127.0.0.1"
 - `experiments.py -> write_experiment_runs_jsonl(path, records)`: exports per-example raw/parsed outputs and normalization/scoring fields.
 - `experiments.py -> write_summary_csv(path, summary_rows)`: exports task/technique aggregate metrics to CSV.
 - `experiments.py -> main()`: now writes `outputs/experiment_runs.jsonl` and `outputs/summary_metrics.csv` after running experiments.
+
+### Recent Implementation Update (Local Smoke Validation)
+
+- Added local smoke-data mode in `experiments.py` via `--use-local-smoke-data` to run validation without downloading Hugging Face datasets.
+- Added built-in tiny QA/sentiment samples used only for smoke validation.
+- Extended loaders to switch between Hugging Face data (default) and local smoke data.
+- Added explicit schema fields to each record (`dataset_name`, `split`, `input_payload`, `gold`, `user_prompt`, `system_prompt`) plus `parse_failed`.
+- Added `parse_fail_count` to summary aggregation and CSV export.
+- Verified end-to-end smoke run:
+  - `outputs/smoke_validation_local/experiment_runs.jsonl`
+  - `outputs/smoke_validation_local/summary_metrics.csv`
+  - `Records with errors: 0`

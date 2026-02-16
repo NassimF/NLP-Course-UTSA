@@ -61,6 +61,7 @@ class ExperimentConfig:
     samples_per_task: int
     seed: int
     output_dir: Path
+    use_local_smoke_data: bool
 
 
 @dataclass
@@ -68,9 +69,16 @@ class ExperimentRecord:
     task: str
     technique: str
     example_id: str
+    dataset_name: str
+    split: str
+    input_payload: Dict[str, Any]
+    gold: Dict[str, Any]
+    user_prompt: str
+    system_prompt: str
     prompt: str
     raw_response: str
     parsed_final_answer: str
+    parse_failed: bool
     latency_ms: float
     error: str
     gold_answers: Optional[List[str]] = None
@@ -272,15 +280,15 @@ def build_sentiment_prompt(example: SentimentExample, technique: str) -> str:
     )
 
 
-def extract_final_answer(raw_text: str) -> str:
+def extract_final_answer(raw_text: str) -> Tuple[str, bool]:
     # Parse the canonical answer line used by all prompting strategies.
     # If the expected line is missing, fall back to full trimmed output.
     if not raw_text:
-        return ""
+        return "", True
     matches = re.findall(r"(?im)^Final Answer:\s*(.+?)\s*$", raw_text.strip())
     if matches:
-        return matches[-1].strip()
-    return raw_text.strip()
+        return matches[-1].strip(), False
+    return raw_text.strip(), True
 
 
 def _system_prompt_for_technique(technique: str) -> Optional[str]:
@@ -310,6 +318,13 @@ def call_llm(prompt: str, config: ExperimentConfig, technique: str) -> str:
     return query_llm(prompt, **kwargs)
 
 
+def _record_system_prompt(technique: str) -> str:
+    override = _system_prompt_for_technique(technique)
+    if override is not None:
+        return override
+    return "DEFAULT (api_basics.SYSTEM_PROMPT)"
+
+
 def parse_args() -> ExperimentConfig:
     parser = argparse.ArgumentParser(
         description="Run Part 2 prompt-engineering experiments (QA + sentiment)."
@@ -320,6 +335,11 @@ def parse_args() -> ExperimentConfig:
     parser.add_argument("--samples-per-task", type=int, default=20)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--output-dir", type=Path, default=Path("outputs"))
+    parser.add_argument(
+        "--use-local-smoke-data",
+        action="store_true",
+        help="Use tiny built-in QA/sentiment examples instead of downloading datasets.",
+    )
     args = parser.parse_args()
 
     return ExperimentConfig(
@@ -329,6 +349,7 @@ def parse_args() -> ExperimentConfig:
         samples_per_task=args.samples_per_task,
         seed=args.seed,
         output_dir=args.output_dir,
+        use_local_smoke_data=args.use_local_smoke_data,
     )
 
 
@@ -358,7 +379,43 @@ def _sample_hf_split(
     return sampled, sampled_indices
 
 
-def load_qa_examples(n_samples: int, seed: int) -> List[QAExample]:
+def _local_qa_examples() -> List[QAExample]:
+    return [
+        QAExample(
+            example_id="local-qa-1",
+            question="What is the capital of France?",
+            context="France's capital city is Paris, known for the Eiffel Tower.",
+            gold_answers=["Paris"],
+        ),
+        QAExample(
+            example_id="local-qa-2",
+            question="Which planet is largest in the Solar System?",
+            context="Jupiter is the largest planet in the Solar System.",
+            gold_answers=["Jupiter"],
+        ),
+    ]
+
+
+def _local_sentiment_examples() -> List[SentimentExample]:
+    return [
+        SentimentExample(
+            example_id="local-imdb-1",
+            review_text="I loved this movie. Great acting and story.",
+            gold_label=1,
+        ),
+        SentimentExample(
+            example_id="local-imdb-2",
+            review_text="This film was boring and way too long.",
+            gold_label=0,
+        ),
+    ]
+
+
+def load_qa_examples(n_samples: int, seed: int, use_local_smoke_data: bool = False) -> List[QAExample]:
+    if use_local_smoke_data:
+        local = _local_qa_examples()
+        return local[: min(n_samples, len(local))]
+
     sampled, _ = _sample_hf_split(SQUAD_DATASET, "validation", n_samples, seed)
     rows: List[QAExample] = []
     for row in sampled:
@@ -375,7 +432,13 @@ def load_qa_examples(n_samples: int, seed: int) -> List[QAExample]:
     return rows
 
 
-def load_sentiment_examples(n_samples: int, seed: int) -> List[SentimentExample]:
+def load_sentiment_examples(
+    n_samples: int, seed: int, use_local_smoke_data: bool = False
+) -> List[SentimentExample]:
+    if use_local_smoke_data:
+        local = _local_sentiment_examples()
+        return local[: min(n_samples, len(local))]
+
     sampled, sampled_indices = _sample_hf_split(IMDB_DATASET, "test", n_samples, seed)
     rows: List[SentimentExample] = []
     for sampled_idx, row in enumerate(sampled):
@@ -394,6 +457,8 @@ def run_qa_experiments(
     examples: List[QAExample], config: ExperimentConfig
 ) -> List[ExperimentRecord]:
     records: List[ExperimentRecord] = []
+    dataset_name = "local_smoke_squad" if config.use_local_smoke_data else SQUAD_DATASET
+    split_name = "local" if config.use_local_smoke_data else "validation"
     # Evaluate each prompting strategy on the same QA sample set.
     for technique in PROMPT_TECHNIQUES:
         for example in examples:
@@ -409,16 +474,27 @@ def run_qa_experiments(
                 # Keep running if one call fails; capture failure for later analysis.
                 error = str(exc)
             latency_ms = (time.perf_counter() - start) * 1000.0
-            parsed = extract_final_answer(raw_response)
+            parsed, parse_failed = extract_final_answer(raw_response)
+            system_prompt = _record_system_prompt(technique)
             # Store both raw text and parsed final answer for reproducibility/evaluation.
             records.append(
                 ExperimentRecord(
                     task=QA_TASK,
                     technique=technique,
                     example_id=example.example_id,
+                    dataset_name=dataset_name,
+                    split=split_name,
+                    input_payload={
+                        "question": example.question,
+                        "context": example.context,
+                    },
+                    gold={"answers": example.gold_answers},
+                    user_prompt=prompt,
+                    system_prompt=system_prompt,
                     prompt=prompt,
                     raw_response=raw_response,
                     parsed_final_answer=parsed,
+                    parse_failed=parse_failed,
                     latency_ms=latency_ms,
                     error=error,
                     gold_answers=example.gold_answers,
@@ -432,6 +508,8 @@ def run_sentiment_experiments(
     examples: List[SentimentExample], config: ExperimentConfig
 ) -> List[ExperimentRecord]:
     records: List[ExperimentRecord] = []
+    dataset_name = "local_smoke_imdb" if config.use_local_smoke_data else IMDB_DATASET
+    split_name = "local" if config.use_local_smoke_data else "test"
     # Same evaluation shape as QA so comparisons are controlled across tasks.
     for technique in PROMPT_TECHNIQUES:
         for example in examples:
@@ -447,16 +525,24 @@ def run_sentiment_experiments(
                 # Record the error and continue to avoid aborting the whole run.
                 error = str(exc)
             latency_ms = (time.perf_counter() - start) * 1000.0
-            parsed = extract_final_answer(raw_response)
+            parsed, parse_failed = extract_final_answer(raw_response)
+            system_prompt = _record_system_prompt(technique)
             # Save parsed label and gold label for later scoring (accuracy/F1).
             records.append(
                 ExperimentRecord(
                     task=SENTIMENT_TASK,
                     technique=technique,
                     example_id=example.example_id,
+                    dataset_name=dataset_name,
+                    split=split_name,
+                    input_payload={"review_text": example.review_text},
+                    gold={"label": example.gold_label},
+                    user_prompt=prompt,
+                    system_prompt=system_prompt,
                     prompt=prompt,
                     raw_response=raw_response,
                     parsed_final_answer=parsed,
+                    parse_failed=parse_failed,
                     latency_ms=latency_ms,
                     error=error,
                     gold_answers=None,
@@ -478,6 +564,7 @@ def summarize_metrics(records: List[ExperimentRecord]) -> List[Dict[str, Any]]:
             "technique": technique,
             "num_samples": len(group),
             "error_count": sum(1 for r in group if r.error),
+            "parse_fail_count": sum(1 for r in group if r.parse_failed),
             "avg_latency_ms": round(
                 sum(r.latency_ms for r in group) / len(group) if group else 0.0, 3
             ),
@@ -520,6 +607,7 @@ def write_summary_csv(path: Path, summary_rows: List[Dict[str, Any]]) -> None:
         "technique",
         "num_samples",
         "error_count",
+        "parse_fail_count",
         "avg_latency_ms",
         "exact_match",
         "token_f1",
@@ -544,9 +632,14 @@ def main() -> None:
     print(f"Samples per task: {config.samples_per_task}")
     print(f"Seed: {config.seed}")
     print(f"Output dir: {config.output_dir}")
+    print(f"Use local smoke data: {config.use_local_smoke_data}")
 
-    qa_examples = load_qa_examples(config.samples_per_task, config.seed)
-    sentiment_examples = load_sentiment_examples(config.samples_per_task, config.seed)
+    qa_examples = load_qa_examples(
+        config.samples_per_task, config.seed, config.use_local_smoke_data
+    )
+    sentiment_examples = load_sentiment_examples(
+        config.samples_per_task, config.seed, config.use_local_smoke_data
+    )
     print(f"Loaded QA examples: {len(qa_examples)}")
     print(f"Loaded sentiment examples: {len(sentiment_examples)}")
 
