@@ -87,10 +87,16 @@ class ExperimentRecord:
 
 
 def _remove_articles(text: str) -> str:
+    """
+    Remove English articles to align QA strings before exact/token matching.
+    """
     return re.sub(r"\b(a|an|the)\b", " ", text)
 
 
 def normalize_qa_text(text: str) -> str:
+    """
+    Normalize QA text by lowercasing, dropping punctuation/articles, and collapsing spaces.
+    """
     if not text:
         return ""
     lowered = text.lower()
@@ -100,6 +106,9 @@ def normalize_qa_text(text: str) -> str:
 
 
 def normalize_sentiment_label(text: str) -> str:
+    """
+    Map raw sentiment text to canonical labels: positive, negative, or unknown.
+    """
     if not text:
         return "unknown"
     value = text.strip().lower()
@@ -111,6 +120,9 @@ def normalize_sentiment_label(text: str) -> str:
 
 
 def _gold_sentiment_label(label: Optional[int]) -> str:
+    """
+    Convert IMDb numeric labels to canonical label names used by evaluation.
+    """
     if label == 1:
         return "positive"
     if label == 0:
@@ -119,6 +131,9 @@ def _gold_sentiment_label(label: Optional[int]) -> str:
 
 
 def qa_exact_match(prediction: str, gold_answers: List[str]) -> float:
+    """
+    Compute normalized exact match against any reference answer for one QA sample.
+    """
     if not gold_answers:
         return 0.0
     pred_norm = normalize_qa_text(prediction)
@@ -129,6 +144,9 @@ def qa_exact_match(prediction: str, gold_answers: List[str]) -> float:
 
 
 def _token_f1(prediction: str, gold: str) -> float:
+    """
+    Compute token-level F1 between one prediction and one QA reference answer.
+    """
     pred_tokens = normalize_qa_text(prediction).split()
     gold_tokens = normalize_qa_text(gold).split()
     if not pred_tokens and not gold_tokens:
@@ -146,12 +164,18 @@ def _token_f1(prediction: str, gold: str) -> float:
 
 
 def qa_token_f1(prediction: str, gold_answers: List[str]) -> float:
+    """
+    Compute best token-level F1 across all reference answers for one QA sample.
+    """
     if not gold_answers:
         return 0.0
     return max(_token_f1(prediction, gold) for gold in gold_answers)
 
 
 def sentiment_accuracy(records: List[ExperimentRecord]) -> float:
+    """
+    Compute sentiment accuracy from normalized predictions over valid labeled rows.
+    """
     valid = [r for r in records if r.task == SENTIMENT_TASK and r.gold_label is not None]
     if not valid:
         return 0.0
@@ -165,6 +189,9 @@ def sentiment_accuracy(records: List[ExperimentRecord]) -> float:
 
 
 def sentiment_macro_f1(records: List[ExperimentRecord]) -> float:
+    """
+    Compute macro-F1 for sentiment by averaging class-wise F1 for positive/negative.
+    """
     valid = [r for r in records if r.task == SENTIMENT_TASK and r.gold_label is not None]
     if not valid:
         return 0.0
@@ -191,11 +218,17 @@ def sentiment_macro_f1(records: List[ExperimentRecord]) -> float:
 
 
 def _validate_technique(technique: str) -> None:
+    """
+    Fail fast when a prompt technique outside the supported set is requested.
+    """
     if technique not in PROMPT_TECHNIQUES:
         raise ValueError(f"Unsupported technique: {technique}")
 
 
 def build_qa_prompt(example: QAExample, technique: str) -> str:
+    """
+    Build a QA prompt for a specific strategy while enforcing the Final Answer format.
+    """
     _validate_technique(technique)
     shared = (
         "Task: Answer the question using only the context.\n"
@@ -223,7 +256,7 @@ def build_qa_prompt(example: QAExample, technique: str) -> str:
             "Reason step by step before deciding.\n"
             "Then provide exactly one final line in the required format."
         )
-    else:
+    else:# custom structured output strategy
         strategy = (
             "First identify a short evidence phrase from context.\n"
             "Then provide the final answer.\n"
@@ -241,6 +274,9 @@ def build_qa_prompt(example: QAExample, technique: str) -> str:
 
 
 def build_sentiment_prompt(example: SentimentExample, technique: str) -> str:
+    """
+    Build a sentiment prompt for a specific strategy with strict final label formatting.
+    """
     _validate_technique(technique)
     shared = (
         "Task: Classify the review sentiment.\n"
@@ -286,6 +322,9 @@ def build_sentiment_prompt(example: SentimentExample, technique: str) -> str:
 
 
 def _strip_wrapping_pairs(text: str) -> str:
+    """
+    Remove matching outer wrappers (e.g., <...>, (...), [...], quotes) repeatedly.
+    """
     value = text.strip()
     wrappers = (("<", ">"), ("[", "]"), ("(", ")"), ('"', '"'), ("'", "'"), ("`", "`"))
     changed = True
@@ -299,6 +338,9 @@ def _strip_wrapping_pairs(text: str) -> str:
 
 
 def _extract_sentiment_label(text: str) -> Tuple[str, bool]:
+    """
+    Extract a single unambiguous sentiment label from text if present.
+    """
     cleaned = _strip_wrapping_pairs(text)
     labels = re.findall(r"(?i)\b(positive|negative)\b", cleaned)
     if not labels:
@@ -310,6 +352,9 @@ def _extract_sentiment_label(text: str) -> Tuple[str, bool]:
 
 
 def _final_answer_candidate(raw_text: str, strict: bool) -> Optional[str]:
+    """
+    Extract the candidate content after 'Final Answer:' using strict or relaxed rules.
+    """
     if strict:
         matches = re.findall(r"(?im)^Final Answer:\s*(.+?)\s*$", raw_text.strip())
         return matches[-1].strip() if matches else None
@@ -317,7 +362,7 @@ def _final_answer_candidate(raw_text: str, strict: bool) -> Optional[str]:
     matches = re.findall(r"(?is)Final Answer:\s*(.+)", raw_text)
     if not matches:
         return None
-    tail = matches[-1].strip()
+    tail = matches[-1].strip()# gets the first word after "final answer:"
     for line in tail.splitlines():
         if line.strip():
             return line.strip()
@@ -325,9 +370,14 @@ def _final_answer_candidate(raw_text: str, strict: bool) -> Optional[str]:
 
 
 def extract_final_answer(raw_text: str, task: Optional[str] = None) -> Tuple[str, bool, bool]:
-    # Parse "Final Answer:" in two passes:
-    # 1) strict line-start match, 2) relaxed fallback anywhere in the response.
-    # format_violation flags cases where the fallback path was required.
+    """
+    Parse the final answer with strict-first then relaxed fallback extraction.
+
+    Returns:
+      parsed_text: normalized extracted answer text
+      parse_failed: True when extraction/validation remains unreliable
+      format_violation: True when strict format was not followed
+    """
     if not raw_text:
         return "", True, False
 
@@ -357,8 +407,9 @@ def extract_final_answer(raw_text: str, task: Optional[str] = None) -> Tuple[str
 
 
 def _system_prompt_for_technique(technique: str) -> Optional[str]:
-    # Only CoT runs override the Part-1 default behavior to allow reasoning text.
-    # Other techniques use api_basics.py defaults for consistency.
+    """
+    Provide per-technique system-prompt overrides (currently only for CoT).
+    """
     if technique == TECHNIQUE_COT:
         return (
             "You are a helpful assistant. Reason step-by-step when useful. "
@@ -368,8 +419,11 @@ def _system_prompt_for_technique(technique: str) -> Optional[str]:
 
 
 def call_llm(prompt: str, config: ExperimentConfig, technique: str) -> str:
-    # Lazy import keeps setup commands (e.g., --help) usable without API deps/env.
-    # This function is the single call path to Part-1 query_llm for all experiments.
+    """
+    Central LLM call path for experiments, reusing Part 1 query_llm.
+
+    Uses lazy import so CLI inspection/help does not require API dependencies.
+    """
     from api_basics import query_llm
 
     kwargs: Dict[str, Any] = {
@@ -384,6 +438,9 @@ def call_llm(prompt: str, config: ExperimentConfig, technique: str) -> str:
 
 
 def _record_system_prompt(technique: str) -> str:
+    """
+    Return the exact system-prompt text recorded in output artifacts.
+    """
     override = _system_prompt_for_technique(technique)
     if override is not None:
         return override
@@ -391,6 +448,9 @@ def _record_system_prompt(technique: str) -> str:
 
 
 def parse_args() -> ExperimentConfig:
+    """
+    Parse CLI arguments and package them into an ExperimentConfig object.
+    """
     parser = argparse.ArgumentParser(
         description="Run Part 2 prompt-engineering experiments (QA + sentiment)."
     )
@@ -421,6 +481,9 @@ def parse_args() -> ExperimentConfig:
 def _sample_hf_split(
     dataset_name: str, split_name: str, n_samples: int, seed: int
 ) -> Tuple[object, List[int]]:
+    """
+    Load a Hugging Face split and return deterministic random samples + source indices.
+    """
     try:
         from datasets import load_dataset
     except ImportError as exc:
@@ -445,6 +508,9 @@ def _sample_hf_split(
 
 
 def _local_qa_examples() -> List[QAExample]:
+    """
+    Return tiny built-in QA examples for offline/local smoke validation runs.
+    """
     return [
         QAExample(
             example_id="local-qa-1",
@@ -462,6 +528,9 @@ def _local_qa_examples() -> List[QAExample]:
 
 
 def _local_sentiment_examples() -> List[SentimentExample]:
+    """
+    Return tiny built-in sentiment examples for offline/local smoke validation.
+    """
     return [
         SentimentExample(
             example_id="local-imdb-1",
@@ -477,6 +546,9 @@ def _local_sentiment_examples() -> List[SentimentExample]:
 
 
 def load_qa_examples(n_samples: int, seed: int, use_local_smoke_data: bool = False) -> List[QAExample]:
+    """
+    Load QA examples from local smoke data or sampled SQuAD validation rows.
+    """
     if use_local_smoke_data:
         local = _local_qa_examples()
         return local[: min(n_samples, len(local))]
@@ -500,6 +572,9 @@ def load_qa_examples(n_samples: int, seed: int, use_local_smoke_data: bool = Fal
 def load_sentiment_examples(
     n_samples: int, seed: int, use_local_smoke_data: bool = False
 ) -> List[SentimentExample]:
+    """
+    Load sentiment examples from local smoke data or sampled IMDb test rows.
+    """
     if use_local_smoke_data:
         local = _local_sentiment_examples()
         return local[: min(n_samples, len(local))]
@@ -521,6 +596,9 @@ def load_sentiment_examples(
 def run_qa_experiments(
     examples: List[QAExample], config: ExperimentConfig
 ) -> List[ExperimentRecord]:
+    """
+    Execute all QA techniques over provided examples and collect per-call records.
+    """
     records: List[ExperimentRecord] = []
     dataset_name = "local_smoke_squad" if config.use_local_smoke_data else SQUAD_DATASET
     split_name = "local" if config.use_local_smoke_data else "validation"
@@ -575,6 +653,9 @@ def run_qa_experiments(
 def run_sentiment_experiments(
     examples: List[SentimentExample], config: ExperimentConfig
 ) -> List[ExperimentRecord]:
+    """
+    Execute all sentiment techniques over provided examples and collect records.
+    """
     records: List[ExperimentRecord] = []
     dataset_name = "local_smoke_imdb" if config.use_local_smoke_data else IMDB_DATASET
     split_name = "local" if config.use_local_smoke_data else "test"
@@ -624,6 +705,9 @@ def run_sentiment_experiments(
 
 
 def summarize_metrics(records: List[ExperimentRecord]) -> List[Dict[str, Any]]:
+    """
+    Aggregate per-record results into task/technique summary metrics.
+    """
     grouped: Dict[Tuple[str, str], List[ExperimentRecord]] = defaultdict(list)
     for record in records:
         grouped[(record.task, record.technique)].append(record)
@@ -660,6 +744,9 @@ def summarize_metrics(records: List[ExperimentRecord]) -> List[Dict[str, Any]]:
 
 
 def write_experiment_runs_jsonl(path: Path, records: List[ExperimentRecord]) -> None:
+    """
+    Write per-example run records (with derived fields) to JSONL.
+    """
     with path.open("w", encoding="utf-8") as f:
         for record in records:
             row = asdict(record)
@@ -674,6 +761,9 @@ def write_experiment_runs_jsonl(path: Path, records: List[ExperimentRecord]) -> 
 
 
 def write_summary_csv(path: Path, summary_rows: List[Dict[str, Any]]) -> None:
+    """
+    Write aggregated task/technique metrics to CSV for report tables.
+    """
     fieldnames = [
         "task",
         "technique",
@@ -695,6 +785,9 @@ def write_summary_csv(path: Path, summary_rows: List[Dict[str, Any]]) -> None:
 
 
 def main() -> None:
+    """
+    Orchestrate loading, execution, aggregation, and artifact export for Part 2.
+    """
     config = parse_args()
     config.output_dir.mkdir(parents=True, exist_ok=True)
 

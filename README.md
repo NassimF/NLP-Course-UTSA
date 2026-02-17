@@ -139,3 +139,15 @@ export NO_PROXY="10.246.100.230,localhost,127.0.0.1"
   - build report tables from `outputs/final_hf_20/summary_metrics.csv`
   - select 2-3 failure cases from `outputs/final_hf_20/experiment_runs.jsonl`
   - draft the 800-1200 word analysis structure
+
+### Recent Implementation Update (Function-Level Documentation)
+
+- Added concise multi-line docstrings across `experiments.py` for all core functions.
+- Documented each function's purpose, inputs/outputs, and role in the Part 2 pipeline.
+- Coverage includes:
+  - normalization and metric helpers
+  - prompt builders and parsing helpers
+  - dataset loading/sampling
+  - experiment execution loops
+  - export and orchestration functions
+- This improves readability for grading/review and makes report-to-code traceability clearer.
