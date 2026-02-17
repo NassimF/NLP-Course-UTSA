@@ -1,8 +1,9 @@
 # Repository Guidelines
 
 ## Project Structure & Module Organization
-This repository is currently centered on one executable script:
+This repository is currently centered on two executable scripts:
 - `api_basics.py`: main assignment client for OpenAI-compatible course APIs (request wrapper, retries, CLI demo).
+- `experiments.py`: Part 2 experiment runner for QA + sentiment prompt-technique comparisons.
 - `README.md`: brief course context and networking note.
 - `Assignment1_LLM_APIs_and_Prompting_Accessible-v1.docx`: assignment handout/reference.
 
@@ -14,14 +15,15 @@ Use Python 3.10+.
 ```bash
 python -m venv .venv
 source .venv/bin/activate
-pip install openai
+pip install openai datasets
 ```
 
-Run the script:
+Run the scripts:
 
 ```bash
 export COURSE_LLM_API_KEY="<your_key>"
 python api_basics.py --temperature 0.7 --max-tokens 200
+python experiments.py --samples-per-task 20 --output-dir outputs/final_hf_20
 ```
 
 Optional networking fix on the DGX environment:
@@ -41,6 +43,7 @@ There is no automated test suite yet. Minimum requirement for contributions is a
 
 ```bash
 python api_basics.py --model "Llama-3.1-70B-Instruct-custom"
+python experiments.py --samples-per-task 1 --use-local-smoke-data --output-dir outputs/smoke_validation_local
 ```
 
 When adding tests, use `pytest` with files named `tests/test_<module>.py`; focus on retry behavior, error classification, and argument parsing.

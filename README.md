@@ -7,7 +7,7 @@ Instructor: Dr. Rad
 ```bash
 python -m venv .venv
 source .venv/bin/activate
-pip install openai
+pip install openai datasets
 ```
 
 Set your API key and run:
@@ -15,6 +15,7 @@ Set your API key and run:
 ```bash
 export COURSE_LLM_API_KEY="<your_key>"
 python api_basics.py --temperature 0.7 --max-tokens 200
+python experiments.py --samples-per-task 20 --output-dir outputs/final_hf_20
 ```
 
 If running on the DGX server, avoid connection issues with:
@@ -55,7 +56,7 @@ export NO_PROXY="10.246.100.230,localhost,127.0.0.1"
 - Sentiment prompt format asks for:
   - `Positive cues: <short list>`
   - `Negative cues: <short list>`
-  - `Final Answer: <positive|negative>`
+  - `Final Answer: positive` or `Final Answer: negative`
 - This helps by making responses easier to parse, more consistent across runs, and less ambiguous during scoring.
 
 ### Recent Implementation Update (Execution Skeleton)
