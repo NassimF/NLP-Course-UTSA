@@ -1,4 +1,4 @@
-My NLP course at UTSA
+# Assignment 1 of my NLP course at UTSA
 
 Instructor: Dr. Rad
 
